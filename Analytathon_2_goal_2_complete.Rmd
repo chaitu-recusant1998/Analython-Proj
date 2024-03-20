@@ -1,0 +1,1018 @@
+---
+title: "Analytathon_2_gaol_2"
+author: "(Team-12)"
+date: "2023-04-24"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Goal 2: Group the bird audio clips into clusters 
+1. How many groups did you detect? 
+2. Are there any outliers? 
+3. Do some birds clips group better than others?
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+******************************************************************************************************************************************
+
+author: "Vinu vanathayan"
+# Methodology:
+
+Summary of the work:
+- Finding the number of clusters in the data(raw data, pca data, winsorzing data, log data)
+- inspecting the clusters classification in the data (cross table)
+- calculating The Silhouette score is a metric used to evaluate the quality of clustering in unsupervised learning
+- strength of the scatters of the cluster's (2 variables used for the scatter plot based on that we can conclude cluster scatterness)
+- using cluster plot finding distribution of the clusters
+
+Model-1: using kmean algorithm classified number of clusters in the raw data.
+
+Model-2: PCA performed and kmeans algorithm used to classify the clusters in the 80% variance contributed PCs 
+
+Model-3: Winszoring(outliers imputation) done in the raw data and perfomred means
+
+Model- 4 log transformation used on raw data and performed kmeans
+
+
+
+
+```{r include=FALSE}
+library("FactoMineR")
+library("factoextra")
+library(readxl)
+library(dplyr)
+library(lubridate) # for date
+library(openxlsx) # to write data in excel format
+library(ggplot2)
+library(plotly)
+library(tibble)
+library(ROSE)
+library(caret)
+library(pROC)
+library(ROCR)
+library(caret)
+library(rpart)
+library(e1071)
+library(kableExtra)
+library(randomForest)
+library(klaR) # used for Naive-Bayes. Must be called before tidyverse, otherwise it masks `select` method
+library(tidyverse)
+library(skimr)
+library(FactoMineR)
+library(factoextra)
+library(mlbench)
+library(caretEnsemble)
+library(RANN)
+library(rpart)
+library(ranger)
+library(arules)
+library(arulesViz)
+library(mice)
+library(NbClust)
+library(factoextra)
+library(cluster)
+```
+
+
+##Data Overview and Processing:
+##author-"Vinu vanathayan " Raw data without any changes:
+
+```{r}
+# data loaded in to the R 
+# we have 2 sliced data, both has same variables so we are appending it in row wise.
+
+#setwd("C:/Users/kkhar/OneDrive/Desktop/vinu/analytathon_2/Excel file")
+
+data1 <- read.csv("greypartridge_features.csv")
+data2 <- read.csv("stockdove_features.csv")
+data3 <- read.csv("turtledove_features.csv")
+data4 <- read.csv("yellowhammer_features.csv")
+
+# inserting birds species names in the data.
+data1$birds<- "greypartridge"
+data2$birds<- "stockdove"
+data3$birds<- "turtledove"
+data4$birds<- "yellowhammer"
+
+
+bird_data<- rbind(data1,data2,data3,data4)
+write.xlsx(bird_data, "bird_data.xlsx")
+```
+
+##author-"Vinu vanathayan "
+Here  I am removing X(ID) and clip variables just keeping numeric variables.This data contains birds Acoustic features. Based on birds sounds clip this matrix generated.
+```{r}
+# here  I am keeping the numeric feature only 
+bird_cluster_df<- bird_data[, 2:137] 
+```
+
+##author-"Vinu vanathayan " 
+Finding cluster in the unprocessed Birds data
+Based on the graph data contains cluster(groups).
+```{r}
+#scaling
+bird_cluster_df_scale<-scale(bird_cluster_df) 
+#here I am using kmeans to find the number of clusters in the data before doing PCA
+fviz_nbclust(bird_cluster_df_scale, kmeans, method = 'silhouette')
+```
+##author-"Vinu vanathayan "
+```{r}
+res_kmeans_4 <- kmeans(bird_cluster_df_scale, centers = 4, nstart = 25)
+
+set.seed(123)
+
+# Centers of 3 clusters
+res_kmeans_4$centers
+
+# Append cluster IDs to the iris dataset
+bird_cluster_df_1 <- bird_cluster_df %>% 
+  as.data.frame() %>% 
+  mutate(
+    Species = bird_data$birds, # Now when we have performed clustering, lets include back `Species` column
+                            # in order to perform meaningful interpretation of discovered subgroups
+        cluster_id_4 = res_kmeans_4$cluster
+  )
+```
+
+##author-"Vinu vanathayan " 
+table distribution of the know case and clusters
+```{r}
+# Inspect the quality of clustering for 4 clusters
+model_1<- table(bird_cluster_df_1$cluster_id_4, bird_data$birds)
+```
+
+##author-"Vinu vanathayan " 
+The Silhouette score is a metric used to evaluate the quality of clustering in unsupervised learning
+```{r}
+# Compute silhouette widths for different numbers of clusters
+sil_width <- c()
+for (k in 2:10) {
+  kmeans_model <- kmeans(bird_cluster_df, centers = k, nstart = 10)
+  sil_width[k] <- mean(silhouette(kmeans_model$cluster, dist(bird_cluster_df)))
+}
+
+# Plot silhouette widths for different numbers of clusters
+plot(2:10, sil_width[2:10], type = "b", pch = 19, frame = FALSE, xlab = "Number of clusters", ylab = "Average silhouette width")
+
+# Compute silhouette score
+sil <- silhouette(kmeans_model$cluster, dist(bird_cluster_df))
+
+
+cat("Silhouette score:", mean(sil[, 3]), "\n")
+
+```
+##author-"Vinu vanathayan " 
+strength of the scatterness of the cluster
+```{r}
+# Create a ggplot scatter plot
+ggplot(bird_cluster_df_1, aes(x = zcr_mean, y = energy_mean, color = factor(cluster_id_4))) +
+  geom_point() +
+
+  # Change the color of the clusters
+  scale_color_manual(values = c("red", "green", "blue", "purple"))
+```
+##author-"Vinu vanathayan "
+distribution of the clusters
+
+```{r}
+k3 <- kmeans(bird_cluster_df, centers = 3, nstart = 25)
+k4 <- kmeans(bird_cluster_df, centers = 4, nstart = 25)
+
+p2 <- fviz_cluster(k3, geom = "point",  data = bird_cluster_df) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = bird_cluster_df) + ggtitle("k = 4")
+
+library(gridExtra)
+grid.arrange(p2, p3, nrow = 1)
+```
+
+#author-"Vinu vanathayan " 
+performing the PCA to find most contributed variables:
+
+```{r}
+pca<- prcomp(bird_cluster_df, center = TRUE, scale = TRUE)
+
+# Calculate the proportion of variance explained by each principal component
+var_explained <- pca$sdev^2 / sum(pca$sdev^2)
+
+```
+
+
+##author-"Vinu vanathayan "
+Based on the graph 28 variables contributed 80% of the variance.
+
+```{r}
+
+# Calculate the cumulative proportion of variance explained
+cum_var_explained <- cumsum(var_explained)
+
+# Identify the number of principal components that explain 80% of the variance
+n_components <- which(cum_var_explained >= 0.80)[1]
+
+# Create a data frame for plotting
+df <- data.frame(PC = 1:n_components,
+                 var_explained = var_explained[1:n_components],
+                 cum_var_explained = cum_var_explained[1:n_components])
+
+# Create the visualization plot using ggplot2
+ggplot(df, aes(x = PC)) +
+  geom_bar(aes(y = var_explained), stat = "identity", fill = "blue", alpha = 0.5) +
+  geom_line(aes(y = cum_var_explained), color = "red") +
+  labs(x = "Principal component", y = "Proportion of variance explained") +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = seq(1, n_components, by = 1)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  guides(fill = FALSE)
+```
+##author-"Vinu vanathayan "
+```{r}
+set.seed(123)
+
+bird_cluster_df_pca = as.data.frame(-pca$x[,1:28])
+
+fviz_nbclust(bird_cluster_df_pca, kmeans, method = 'silhouette')
+
+```
+
+##author-"Vinu vanathayan " 
+```{r}
+res_kmeans_4 <- kmeans(bird_cluster_df_pca, centers = 4, nstart = 25)
+
+set.seed(123)
+
+# Centers of 3 clusters
+res_kmeans_4$centers
+
+# Append cluster IDs to the iris dataset
+bird_cluster_df_2 <- bird_cluster_df %>% 
+  as.data.frame() %>% 
+  mutate(
+    Species = bird_data$birds, # Now when we have performed clustering, lets include back `Species` column
+                            # in order to perform meaningful interpretation of discovered subgroups
+        cluster_id_4 = res_kmeans_4$cluster
+  )
+
+```
+
+
+##author-"Vinu vanathayan " 
+```{r}
+# Inspect the quality of clustering for 4 clusters
+model_2<- table(bird_cluster_df_2$cluster_id_4, bird_data$birds)
+
+```
+##author-"Vinu vanathayan " 
+```{r}
+# Compute silhouette widths for different numbers of clusters
+sil_width <- c()
+for (k in 2:10) {
+  kmeans_model <- kmeans(bird_cluster_df_pca, centers = k, nstart = 10)
+  sil_width[k] <- mean(silhouette(kmeans_model$cluster, dist(bird_cluster_df_pca)))
+}
+
+# Plot silhouette widths for different numbers of clusters
+plot(2:10, sil_width[2:10], type = "b", pch = 19, frame = FALSE, xlab = "Number of clusters", ylab = "Average silhouette width")
+
+# Compute silhouette score
+sil <- silhouette(kmeans_model$cluster, dist(bird_cluster_df_pca))
+
+
+cat("Silhouette score:", mean(sil[, 3]), "\n")
+```
+##author-"Vinu vanathayan " 
+```{r}
+# Create a ggplot scatter plot
+ggplot(bird_cluster_df_2, aes(x = zcr_mean, y = energy_mean, color = factor(cluster_id_4))) +
+  geom_point() +
+
+  # Change the color of the clusters
+  scale_color_manual(values = c("red", "green", "blue", "purple"))
+```
+##author-"Vinu vanathayan "
+```{r}
+k2 <- kmeans(bird_cluster_df_pca, centers = 2, nstart = 25)
+k3 <- kmeans(bird_cluster_df_pca, centers = 3, nstart = 25)
+k4 <- kmeans(bird_cluster_df_pca, centers = 4, nstart = 25)
+
+# plots to compare
+p1 <- fviz_cluster(k2, geom = "point", data = bird_cluster_df_pca[,1:2]) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = bird_cluster_df_pca[,1:2]) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = bird_cluster_df_pca[,1:2]) + ggtitle("k = 4")
+
+library(gridExtra)
+grid.arrange(p1, p2, p3, nrow = 1)
+```
+
+##author-"Vinu vanathayan " outliers deteection for highly contributed variables
+```{r}
+pca <- prcomp(bird_cluster_df)
+pca_data <- pca$x[, 1:28]
+loadings <- pca$rotation[, 1:28]
+top_vars <- apply(abs(loadings), 2, which.max)
+colnames(bird_cluster_df)[top_vars]
+
+# 80% variance data set
+bird_cluster_df_80_pca <- bird_cluster_df[, top_vars]
+#bird_df_80_out <- scale(bird_df_80_out)
+
+```
+##author-"Vinu vanathayan " 
+```{r}
+# I made a box plot to find outliers in this data. finding the outliers in voices data is quite deficlut. becasue we cant classfiy it as outliers its subjective. in this case i just found outliers for 28 varaibles whihc have 80% variance to find clustring.based in this these 28 varaibles have considerable about of the outliers.
+require(reshape2)
+birds<- bird_data[,139]
+bird_df_80_out_bird<- cbind(bird_cluster_df_80_pca, birds)
+bird_df_80_out_bird_long<- melt(bird_df_80_out_bird, id.var = "birds")
+p <- ggplot(data = bird_df_80_out_bird_long, aes(x=variable, y=value)) +geom_boxplot(aes(fill=birds))
+p + facet_wrap( ~ variable, scales="free")
+
+# Set the size of the plot
+options(repr.plot.width = 10, repr.plot.height = 10)
+
+```
+##author-"Vinu vanathayan " winsorzing outliers
+```{r}
+library(dplyr)
+
+bird_df_80_out_bird_win <- bird_df_80_out_bird %>%
+  group_by(birds) %>%
+  mutate_at(vars(-birds), 
+            function(x) ifelse(x > quantile(x, 0.75, na.rm = TRUE) + 1.5*IQR(x, na.rm = TRUE),
+                               max(x[x != max(x, na.rm = TRUE)]),
+                               ifelse(x < quantile(x, 0.25, na.rm = TRUE) - 1.5*IQR(x, na.rm = TRUE),
+                                      min(x[x != min(x, na.rm = TRUE)]),
+                                      x)))
+
+```
+##author-"Vinu vanathayan " 
+```{r warning=FALSE}
+#comparing the data before and after winzorise
+ggplot(bird_df_80_out_bird_win,aes(bird_df_80_out_bird_win$birds,bird_df_80_out_bird_win$mfcc_3_mean))+geom_boxplot()
+
+ggplot(bird_df_80_out_bird,aes(bird_df_80_out_bird$birds,bird_df_80_out_bird$mfcc_3_mean))+geom_boxplot()
+```
+##author-"Vinu vanathayan " 
+```{r}
+#scaling
+bird_cluster_df_scale<-scale(bird_df_80_out_bird_win[,1:28]) 
+#here I am using kmeans to find the number of clusters in the data before doing PCA
+fviz_nbclust(bird_cluster_df_scale, kmeans, method = 'silhouette')
+
+```
+##author-"Vinu vanathayan " 
+```{r}
+res_kmeans_4 <- kmeans(bird_df_80_out_bird_win[,1:28], centers = 4, nstart = 25)
+
+set.seed(123)
+
+# Centers of 3 clusters
+res_kmeans_4$centers
+
+# Append cluster IDs to the iris dataset
+bird_cluster_df_3 <- bird_cluster_df %>% 
+  as.data.frame() %>% 
+  mutate(
+    Species = bird_data$birds, # Now when we have performed clustering, lets include back `Species` column
+                            # in order to perform meaningful interpretation of discovered subgroups
+        cluster_id_4 = res_kmeans_4$cluster
+  )
+
+```
+
+##author-"Vinu vanathayan " 
+```{r}
+# Inspect the quality of clustering for 4 clusters
+model_3<- table(bird_cluster_df_3$cluster_id_4, bird_data$birds)
+
+```
+##author-"Vinu vanathayan " 
+```{r}
+# Compute silhouette widths for different numbers of clusters
+sil_width <- c()
+for (k in 2:10) {
+  kmeans_model <- kmeans(bird_df_80_out_bird_win[,1:28], centers = k, nstart = 10)
+  sil_width[k] <- mean(silhouette(kmeans_model$cluster, dist(bird_df_80_out_bird_win[,1:28])))
+}
+
+# Plot silhouette widths for different numbers of clusters
+plot(2:10, sil_width[2:10], type = "b", pch = 19, frame = FALSE, xlab = "Number of clusters", ylab = "Average silhouette width")
+
+# Compute silhouette score
+sil <- silhouette(kmeans_model$cluster, dist(bird_df_80_out_bird_win[,1:28]))
+
+
+cat("Silhouette score:", mean(sil[, 3]), "\n")
+```
+##author-"Vinu vanathayan " 
+```{r}
+# Create a ggplot scatter plot
+ggplot(bird_cluster_df_3, aes(x = zcr_mean, y = energy_mean, color = factor(cluster_id_4))) +
+  geom_point() +
+
+  # Change the color of the clusters
+  scale_color_manual(values = c("red", "green", "blue", "purple"))
+```
+
+
+
+##author-"Vinu vanathayan " 
+```{r}
+k2 <- kmeans(bird_df_80_out_bird_win[,1:28], centers = 2, nstart = 25)
+k3 <- kmeans(bird_df_80_out_bird_win[,1:28], centers = 3, nstart = 25)
+k4 <- kmeans(bird_df_80_out_bird_win[,1:28], centers = 4, nstart = 25)
+
+# plots to compare
+p1 <- fviz_cluster(k2, geom = "point", data = bird_df_80_out_bird_win[,1:28]) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = bird_df_80_out_bird_win[,1:28]) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = bird_df_80_out_bird_win[,1:28]) + ggtitle("k = 4")
+
+library(gridExtra)
+grid.arrange(p1, p2, p3, nrow = 1)
+
+
+```
+
+##author-"Vinu vanathayan "  log tranformation:
+```{r}
+bird_df_log <- bird_cluster_df%>%
+                      mutate_all(~log(abs(. - min(., na.rm = TRUE)) + 1))
+
+res_kmeans_2 <- kmeans(bird_df_log, centers = 2, nstart = 25)
+res_kmeans_4 <- kmeans(bird_df_log, centers = 4, nstart = 25)
+
+```
+
+##author-"Vinu vanathayan " 
+```{r}
+#scaling
+bird_cluster_df_log<-bird_df_log
+#here I am using kmeans to find the number of clusters in the data before doing PCA
+fviz_nbclust(bird_cluster_df_log, kmeans, method = 'wss')
+fviz_nbclust(bird_cluster_df_log, kmeans, method = 'silhouette')
+
+```
+##author-"Vinu vanathayan " 
+```{r}
+res_kmeans_4 <- kmeans(bird_cluster_df_log, centers = 4, nstart = 25)
+
+set.seed(123)
+
+# Centers of 3 clusters
+res_kmeans_4$centers
+
+# Append cluster IDs to the iris dataset
+bird_cluster_df_4 <- bird_cluster_df %>% 
+  as.data.frame() %>% 
+  mutate(
+    Species = bird_data$birds, # Now when we have performed clustering, lets include back `Species` column
+                            # in order to perform meaningful interpretation of discovered subgroups
+        cluster_id_4 = res_kmeans_4$cluster
+  )
+
+```
+
+##author-"Vinu vanathayan " 
+```{r}
+# Inspect the quality of clustering for 4 clusters
+model_4<- table(bird_cluster_df_4$cluster_id_4, bird_data$birds)
+
+```
+##author-"Vinu vanathayan " 
+```{r}
+# Compute silhouette widths for different numbers of clusters
+sil_width <- c()
+for (k in 2:10) {
+  kmeans_model <- kmeans(bird_cluster_df_log, centers = k, nstart = 10)
+  sil_width[k] <- mean(silhouette(kmeans_model$cluster, dist(bird_cluster_df_log)))
+}
+
+# Plot silhouette widths for different numbers of clusters
+plot(2:10, sil_width[2:10], type = "b", pch = 19, frame = FALSE, xlab = "Number of clusters", ylab = "Average silhouette width")
+
+# Compute silhouette score
+sil <- silhouette(kmeans_model$cluster, dist(bird_cluster_df_log))
+
+
+cat("Silhouette score:", mean(sil[, 3]), "\n")
+```
+##author-"Vinu vanathayan " 
+```{r}
+# Create a ggplot scatter plot
+ggplot(bird_cluster_df_4, aes(x = zcr_mean, y = energy_mean, color = factor(cluster_id_4))) +
+  geom_point() +
+
+  # Change the color of the clusters
+  scale_color_manual(values = c("red", "green", "blue", "purple"))
+
+```
+
+##author-"Vinu vanathayan " 
+```{r}
+k2 <- kmeans(bird_cluster_df_log, centers = 2, nstart = 25)
+k3 <- kmeans(bird_cluster_df_log, centers = 3, nstart = 25)
+k4 <- kmeans(bird_cluster_df_log, centers = 4, nstart = 25)
+
+# plots to compare
+p1 <- fviz_cluster(k2, geom = "point", data = bird_cluster_df_log) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = bird_cluster_df_log) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = bird_cluster_df_log) + ggtitle("k = 4")
+
+library(gridExtra)
+grid.arrange(p1, p2, p3, nrow = 1)
+```
+
+##author-"Vinu vanathayan "  model comparison
+```{r}
+model_1 # greypartridge-3,stockdove-3,turtledove-3,yellowhammer-2 
+model_2 # greypartridge-2, stockdove-4, turtledove-3, yellowhammer-1
+model_3 # greypartridge-2, stockdove-4,turtledove-3,yellowhammer-4
+model_4 # greypartridge-4, stockdove-2,turtledove-3, yellowhammer-1 
+
+```
+
+----------------------------------------------------------------------------------------------------------------------------------------
+*************************************************************************************************************************************************
+
+
+Author : Akshay Kumar Dhar 
+
+
+##author - "Akshay Kumar Dhar "
+```{r}
+greypartridge <- read.csv("C:\\Users\\AKSHAY KUMAR DHAR\\OneDrive\\deloitee\\data file\\greypartridge\\greypartridge\\greypartridge_features.csv")
+stockdove <- read.csv("C:\\Users\\AKSHAY KUMAR DHAR\\OneDrive\\deloitee\\data file\\stockdove\\stockdove\\stockdove_features.csv")
+turtledove <- read.csv("C:\\Users\\AKSHAY KUMAR DHAR\\OneDrive\\deloitee\\data file\\turtledove\\turtledove\\turtledove_features.csv")
+yellowhammer <- read.csv("C:\\Users\\AKSHAY KUMAR DHAR\\OneDrive\\deloitee\\data file\\yellowhammer\\yellowhammer\\yellowhammer_features.csv")
+
+
+#setwd("C:/Users/kkhar/OneDrive/Desktop/vinu/analytathon_2/Excel file")
+
+# greypartridge <- read.csv("greypartridge_features.csv")
+# stockdove <- read.csv("stockdove_features.csv")
+# turtledove <- read.csv("turtledove_features.csv")
+# yellowhammer <- read.csv("yellowhammer_features.csv")
+
+
+
+
+bird_data<- rbind(greypartridge,stockdove,turtledove,yellowhammer)
+
+colnames(bird_data)
+
+```
+## author -  "Akshay Kumar Dhar " 
+Species = greypartridge
+```{r warning=TRUE}
+library(dplyr)
+library(factoextra)
+library(ggplot2)
+#---------------Load the data containing the extracted acoustic features into a data frame-------------------------------
+
+audio_features_greypartridge <- greypartridge # loading the data for greypartridge bird 
+
+#--------------------------------performing basic data cleaning steps --------------------------------------------
+#1>
+sum(is.na(audio_features_greypartridge))
+audio_features_greypartridge <- na.omit(audio_features_greypartridge)
+
+#2>
+dup_rows <- duplicated(audio_features_greypartridge)
+sum(dup_rows)
+
+#--------------------------------feature engenerring  ----------------------------------------------------------
+
+audio_features_greypartridge$species <- "greypartridge"
+
+#-------------------------------preprocessing the dataframe for k-means clustering ---------------------------------------
+
+audio_features_greypartridge <-subset(audio_features_greypartridge, select = -species)
+audio_features_greypartridge <-subset(audio_features_greypartridge, select = -clip)
+audio_features_greypartridge <-subset(audio_features_greypartridge, select = -X)
+
+#------------------------------scalling the data frame -------------------------------------------------------------------
+
+bird_scale_greypartridge <-scale(audio_features_greypartridge) 
+
+#  Domain Knowledge; : Domain knowledge can also be used to determine the appropriate number of clusters in k-means clustering. For example, if you are clustering customer data, you may know that there are distinct customer segments based on demographic or behavioral characteristics. In this case, the number of clusters may be predetermined based on prior knowledge. in this case we know this single data set contains data for a single bird i.e k = 1 
+
+#----------------finding k using fviz_nbclust () silhouette method----------------------------
+
+# fviz_nbclust() is a function from the factoextra package in R that helps to determine the optimal number of clusters for a given dataset by comparing different clustering methods and their performance measures.
+# The silhouette score measures how well each data point fits into its assigned cluster compared to the other clusters. The score ranges from -1 to 1, with higher scores indicating better clustering results.
+
+
+fviz_nbclust(bird_scale_greypartridge, kmeans, method = 'silhouette')
+#k=2
+
+#-----------------------------performing clustering on scaled dataframe --------------------------------------------------------------
+
+# Cluster the bird audio clips using K-means
+kmeans_1 <- kmeans(bird_scale_greypartridge, centers = 2)
+labels_1<- kmeans_1$cluster
+
+#clustering results-
+#-------------- Visualize the clustering results-----------------------------
+
+C1<- fviz_cluster(list(data = bird_scale_greypartridge, cluster = labels_1),main = " Cluster plot for greypartridge ")
+C1
+
+#---------outliear detection & visualization -------------------------------------------------------
+
+outliers_greypartridge <- which(kmeans_1$cluster == 0) # Observations with no cluster assignment
+
+# The for loop is iterating over each of the two clusters generated by the k-means algorithm for the greypartridge species.
+# 
+# For each cluster, the code is calculating the Euclidean distance between each observation in that cluster and the centroid of that cluster. The centroid is the center point of the cluster, and it is calculated as the mean of all observations in that cluster. The distances are calculated using the "apply" function, which applies a function (in this case, a lambda function) to each row of the data frame.
+# 
+# The code then finds the 95th percentile of these distances using the "quantile" function and sets this value as the threshold for outlier detection. Any observation with a distance greater than this threshold is considered an outlier.
+# The result is a list of outliers for the greypartridge species, which can be used for further analysis.
+
+for (i in 2) {
+  # Calculate the distance between each observation and the centroid of its assigned cluster
+  dist_from_centroid_1 <- apply(bird_scale_greypartridge[kmeans_1$cluster == i,], 1, function(x) sqrt(sum((x - kmeans_1$centers[i,])^2)))
+  
+  # Find observations that have a distance greater than a certain threshold
+  threshold_1 <- quantile(dist_from_centroid_1, 0.95)
+  outliers_1 <- c(outliers_greypartridge, which(kmeans_1$cluster == i & dist_from_centroid_1 > threshold_1))
+}
+
+outlier_data_1 <- audio_features_greypartridge[outliers_1,]
+
+# Are there any outliers? 
+
+paste("The Total number of outliers detected in greypartridge Species is ", nrow(outlier_data_1))
+
+plot(bird_scale_greypartridge, col = ifelse(kmeans_1$cluster == 0, "red", "grey"), xlab = "", ylab = "",main = "Highlighting outliers in greypartridge species ")
+points(outlier_data_1, col = "blue", pch = 20)
+
+wss_score_1 <- sum(kmeans_1$withinss)
+
+
+```
+
+
+
+
+## author -  "Akshay Kumar Dhar " 
+Species = stockdove
+```{r warning=FALSE}
+# --------------------Load the data containing the extracted acoustic features into a data frame------------------------------------
+
+audio_features_stockdove<- stockdove # loading the data for stockdove bird 
+
+#---------------------------------- performing basic data cleaning steps --------------------------------------------
+
+#1>
+sum(is.na(audio_features_stockdove))
+audio_features_stockdove <- na.omit(audio_features_stockdove)
+
+#2>
+
+dup_rows <- duplicated(audio_features_stockdove)
+sum(dup_rows)
+
+
+#--------------------------------feature engenerring  ----------------------------------------------------------
+
+audio_features_stockdove$species <- "stockdove"
+
+#------------------------------- preprocessing the dataframe for k-means clustering ---------------------------------------
+
+audio_features_stockdove <-subset(audio_features_stockdove, select = -species)
+audio_features_stockdove <-subset(audio_features_stockdove, select = -clip)
+audio_features_stockdove <-subset(audio_features_stockdove, select = -X)
+
+#------------------------------scalling the data frame -------------------------------------------------------------------
+
+bird_scale_stockdove <-scale(audio_features_stockdove) 
+
+#-----------------finding k using fviz_nbclust () silhouette method ------- ------------------------
+
+# fviz_nbclust() is a function from the factoextra package in R that helps to determine the optimal number of clusters for a given dataset by comparing different clustering methods and their performance measures.
+# The silhouette score measures how well each data point fits into its assigned cluster compared to the other clusters. The score ranges from -1 to 1, with higher scores indicating better clustering results.
+
+fviz_nbclust(bird_scale_stockdove, kmeans, method = 'silhouette')
+# k = 3 
+
+#-----------------performing clustering on scaled dataframe --------------------------------------------------------------
+
+# Cluster the bird audio clips using K-means
+kmeans_2 <- kmeans(bird_scale_stockdove, centers = 3)
+labels_2 <- kmeans_2$cluster
+
+#clustering results-
+#------------------Visualize the clustering results---------------------------------------------------
+
+C2<-fviz_cluster(list(data = bird_scale_stockdove, cluster = labels_2),main = " Cluster plot for stockdove ")
+C2
+
+#------outliear detection & visualization -------------------------------------------------------
+
+outliers_stockdove <- which(kmeans_2$cluster == 0) # Observations with no cluster assignment
+
+
+# The for loop is iterating over each of the three clusters generated by the k-means algorithm for the stockdove species.
+# 
+# For each cluster, the code is calculating the Euclidean distance between each observation in that cluster and the centroid of that cluster. The centroid is the center point of the cluster, and it is calculated as the mean of all observations in that cluster. The distances are calculated using the "apply" function, which applies a function (in this case, a lambda function) to each row of the data frame.
+# 
+# The code then finds the 95th percentile of these distances using the "quantile" function and sets this value as the threshold for outlier detection. Any observation with a distance greater than this threshold is considered an outlier.
+# The result is a list of outliers for the stockdove species, which can be used for further analysis.
+
+for (i in 3) {
+  # Calculate the distance between each observation and the centroid of its assigned cluster
+  dist_from_centroid_2 <- apply(bird_scale_stockdove[kmeans_2$cluster == i,], 1, function(x) sqrt(sum((x - kmeans_2$centers[i,])^2)))
+  
+  # Find observations that have a distance greater than a certain threshold
+  threshold_2 <- quantile(dist_from_centroid_2, 0.95)
+  outliers_2 <- c(outliers_stockdove, which(kmeans_2$cluster == i & dist_from_centroid_2 > threshold_1))
+}
+
+outlier_data_2 <- audio_features_stockdove[outliers_2,]
+
+# Are there any outliers?
+paste("The Total number of outliers detected in stockdove Species is ", nrow(outlier_data_2))
+
+
+plot(bird_scale_stockdove, col = ifelse(kmeans_2$cluster == 0, "red", "grey"), xlab = "", ylab = "",main = "Highlighting outliers in stockdove species ")
+points(outlier_data_2, col = "blue", pch = 20)
+
+wss_score_2 <- sum(kmeans_2$withinss)
+
+
+
+
+
+```
+
+
+
+## author -  "Akshay Kumar Dhar " 
+Species = turtledove
+```{r warning=FALSE}
+# -------------Load the data containing the extracted acoustic features into a data frame------------------------------------
+
+audio_features_turtledove <- turtledove # loading the data for turtledove bird 
+
+#---------------------------------------------------performing basic data cleaning steps --------------------------------------------
+
+#1>
+sum(is.na(audio_features_turtledove))
+audio_features_turtledove <- na.omit(audio_features_turtledove)
+
+#2>
+
+dup_rows <- duplicated(audio_features_turtledove)
+sum(dup_rows)
+
+
+#--------------------------------feature engenerring  ----------------------------------------------------------
+audio_features_turtledove$species <- "turtledove"
+
+#-------------------------------preprocessing the dataframe for k-means clustering ---------------------------------------
+
+audio_features_turtledove <-subset(audio_features_turtledove, select = -species)
+audio_features_turtledove <-subset(audio_features_turtledove, select = -clip)
+audio_features_turtledove <-subset(audio_features_turtledove, select = -X)
+
+#------------------------------scalling the data frame -------------------------------------------------------------------
+
+bird_scale_turtledove <-scale(audio_features_turtledove) 
+
+#-----------------finding k using fviz_nbclust () silhouette ------------------------
+
+
+# fviz_nbclust() is a function from the factoextra package in R that helps to determine the optimal number of clusters for a given dataset by comparing different clustering methods and their performance measures.
+# The silhouette score measures how well each data point fits into its assigned cluster compared to the other clusters. The score ranges from -1 to 1, with higher scores indicating better clustering results.
+
+fviz_nbclust(bird_scale_turtledove, kmeans, method = 'silhouette')
+# k = 5 
+
+#------------------- performing clustering on scaled dataframe --------------------------------------------------------------
+
+# Cluster the bird audio clips using K-means
+kmeans_3 <- kmeans(bird_scale_turtledove, centers = 5)
+labels_3 <- kmeans_3$cluster
+
+#clustering results-
+
+# -------------------------------------Visualize the clustering results-----------------------------------------------
+
+C3<-fviz_cluster(list(data = bird_scale_turtledove, cluster = labels_3),main = "Cluster plot for turtledove ")
+C3
+#-----------------outliear detection & visualization  -------------------------------------------------------
+
+outliers_turtledove <- which(kmeans_3$cluster == 0) # Observations with no cluster assignment
+
+# The for loop is iterating over each of the five clusters generated by the k-means algorithm for the turtledove species.
+# 
+# For each cluster, the code is calculating the Euclidean distance between each observation in that cluster and the centroid of that cluster. The centroid is the center point of the cluster, and it is calculated as the mean of all observations in that cluster. The distances are calculated using the "apply" function, which applies a function (in this case, a lambda function) to each row of the data frame.
+# 
+# The code then finds the 95th percentile of these distances using the "quantile" function and sets this value as the threshold for outlier detection. Any observation with a distance greater than this threshold is considered an outlier.
+# The result is a list of outliers for the turtledove species, which can be used for further analysis.
+
+for (i in 5) {
+  # Calculate the distance between each observation and the centroid of its assigned cluster
+  dist_from_centroid_3 <- apply(bird_scale_turtledove[kmeans_3$cluster == i,], 1, function(x) sqrt(sum((x - kmeans_3$centers[i,])^2)))
+  
+  # Find observations that have a distance greater than a certain threshold
+  threshold_3 <- quantile(dist_from_centroid_3, 0.95)
+  outliers_3 <- c(outliers_turtledove, which(kmeans_3$cluster == i & dist_from_centroid_3 > threshold_3))
+}
+
+outlier_data_3 <- audio_features_turtledove[outliers_3,]
+
+#Are there any outliers? 
+paste("The Total number of outliers detected in turtledove Species is ", nrow(outlier_data_3))
+
+plot(bird_scale_turtledove, col = ifelse(kmeans_3$cluster == 0, "red", "grey"), xlab = "", ylab = "",main = "Highlighting outliers in turtledove species ")
+points(outlier_data_3, col = "blue", pch = 20)
+
+wss_score_3 <- sum(kmeans_3$withinss)
+
+
+```
+
+
+## author -  "Akshay Kumar Dhar " : 
+Species = yellowhammer
+```{r}
+# ------------------Load the data containing the extracted acoustic features into a data frame------------------------------------
+
+audio_features_yellowhammer<- yellowhammer # loading the data for yellowhammer bird 
+
+#---------------------------------------------------performing basic data cleaning steps --------------------------------------------
+
+#1>
+sum(is.na(audio_features_yellowhammer))
+audio_features_yellowhammer <- na.omit(audio_features_yellowhammer)
+
+#2>
+
+dup_rows <- duplicated(audio_features_yellowhammer)
+sum(dup_rows)
+
+
+#------------------feature engenerring  ----------------------------------------------------------
+
+audio_features_yellowhammer$species <- "yellowhammer"
+
+#-------------------------------preprocessing the dataframe for k-means clustering ---------------------------------------
+
+audio_features_yellowhammer <-subset(audio_features_yellowhammer, select = -species)
+audio_features_yellowhammer <-subset(audio_features_yellowhammer, select = -clip)
+audio_features_yellowhammer <-subset(audio_features_yellowhammer, select = -X)
+
+#------------------------------scalling the data frame -------------------------------------------------------------------
+
+bird_scale_yellowhammer <-scale(audio_features_yellowhammer) 
+
+#-----------------finding k using fviz_nbclust () silhouette ------------------------
+
+
+# fviz_nbclust() is a function from the factoextra package in R that helps to determine the optimal number of clusters for a given dataset by comparing different clustering methods and their performance measures.
+# The silhouette score measures how well each data point fits into its assigned cluster compared to the other clusters. The score ranges from -1 to 1, with higher scores indicating better clustering results.
+
+
+fviz_nbclust(bird_scale_yellowhammer, kmeans, method = 'silhouette')
+# k = 2  
+
+#---------------performing clustering on scaled dataframe --------------------------------------------------------------
+
+# Cluster the bird audio clips using K-means
+kmeans_4 <- kmeans(bird_scale_yellowhammer, centers = 2)
+labels_4 <- kmeans_4$cluster
+
+#clustering results-
+
+# -------------------------------------Visualize the clustering results-----------------------------------------------
+
+C4<-fviz_cluster(list(data = bird_scale_yellowhammer, cluster = labels_4),main = "Cluster plot for yellowhammer ")
+C4
+#----------------outliear detection & visualization  -------------------------------------------------------
+
+outliers_yellowhammer <- which(kmeans_4$cluster == 0) # Observations with no cluster assignment
+
+for (i in 2) {
+  # Calculate the distance between each observation and the centroid of its assigned cluster
+  dist_from_centroid_4 <- apply(bird_scale_yellowhammer[kmeans_4$cluster == i,], 1, function(x) sqrt(sum((x - kmeans_4$centers[i,])^2)))
+  
+  # Find observations that have a distance greater than a certain threshold
+  threshold_4 <- quantile(dist_from_centroid_4, 0.95)
+  outliers_4 <- c(outliers_yellowhammer, which(kmeans_4$cluster == i & dist_from_centroid_4 > threshold_4))
+}
+
+#Are there any outliers?
+outlier_data_4 <- audio_features_yellowhammer[outliers_4,]
+
+paste("The Total number of outliers detected in yellowhammer Species is ", nrow(outlier_data_4))
+
+plot(bird_scale_yellowhammer, col = ifelse(kmeans_4$cluster == 0, "red", "grey"), xlab = "", ylab = "",main = "Highlighting outliers in yellowhammer species ")
+points(outlier_data_4, col = "blue", pch = 20)
+
+wss_score_4 <- sum(kmeans_4$withinss) 
+```
+
+##author - "Akshay Kumar Dhar " : 
+Are there any outliers?
+```{r}
+
+OUTLIERS_data <- data.frame(
+  Bird_Species = c("greypartridge", "stockdove", "turtledove", "yellowhammer"),
+  outliers = c(nrow(outlier_data_1), nrow(outlier_data_2), nrow(outlier_data_3), nrow(outlier_data_4))
+)
+
+
+OUTLIERS_data<-OUTLIERS_data[order(OUTLIERS_data$outliers), ]
+print(OUTLIERS_data)
+
+#piechart
+# Create a pie chart using ggplot2
+
+ggplot(OUTLIERS_data, aes(x = "", y = outliers, fill = Bird_Species)) +
+  geom_bar(stat = "identity", width = 1, color = "black",size = 0.79) +
+  coord_polar(theta = "y") +
+  theme_void() +
+  labs(title = "Outliers Counts", fill = "Outliers") +
+  geom_text(aes(label = outliers), position = position_stack(vjust = 0.5), size = 7, fontface = "bold") +  
+   theme(panel.border = element_rect(color = "black", size = 1.5, fill = NA),
+        legend.title = element_text(size = 12, face = "bold"),
+        plot.title = element_text(size = 13, face = "bold"))
+
+
+# The Euclidean distance is commonly used in clustering algorithms as it measures the straight-line distance between two points in a multidimensional space. By calculating the distance between each observation and the centroid, we can identify how similar or dissimilar the observations in the cluster are to each other, as well as how well the centroid represents the cluster.
+# 
+# Once we have computed the distances from the centroid, we can use this information to identify outliers in the cluster. Outliers are observations that are significantly different from the rest of the observations in the cluster, and they can negatively affect the quality of the cluster. By setting a threshold based on the 95th percentile of the distances from the centroid, we are defining a boundary beyond which an observation is considered an outlier. The threshold is chosen to be relatively high so that only the most extreme observations are classified as outliers. Observations that have distances greater than the threshold are identified as outliers 
+
+```
+
+
+##author:"Akshay Kumar Dhar":
+Do some birds clips group better than others? 
+```{r}
+# wss_score_1
+# wss_score_2         
+# wss_score_3
+# wss_score_4
+# 
+# bss_score_1
+# bss_score_2
+# bss_score_3
+# bss_score_4
+
+WSS_data <- data.frame(
+  Bird_Species = c("greypartridge", "stockdove", "turtledove", "yellowhammer"),
+  WSS_Score = c(wss_score_1, wss_score_2, wss_score_3, wss_score_4)
+)
+
+WSS_SCORE<- WSS_data[order(WSS_data$WSS_Score), ]
+WSS_SCORE
+
+# To determine which species sound  clips clump together more well than others we compare the WSS values for each species. Species with lower WSS values are likely to have more distinct clusters than species with higher WSS values because lower WSS values imply greater clustering.
+
+
+
+
+
+library(ggplot2)
+library(forcats)
+
+WSS_SCORE$Bird_Species <- fct_reorder(WSS_SCORE$Bird_Species, WSS_SCORE$WSS_Score, .desc = FALSE)
+ggplot(WSS_SCORE, aes(x = Bird_Species, y = WSS_Score, fill = Bird_Species)) +  
+  geom_bar(stat = "identity", position = position_dodge(width =0.5), color = "black", width = 0.2) +
+  geom_text(aes(label = round(WSS_Score,3), y = round(WSS_Score,3)), position = position_dodge(width = 0), vjust = -0.2) +
+  labs(title = "WSS score for each Bird Species") +
+  xlab(" ") +
+  ylab("")+theme(legend.position = "none")
+
+
+grid.arrange(C1, C2, C3, C4, nrow = 2, ncol = 2)
+
+```
+
+conclusion:
+
+model comparison using tables
+
+1. As per the kmean model building we were identified 4 cluster in the data.
+
+thus answering for the 1st question.(How many groups did you detect?)
+
+2. for our further analysis we have identified outliers using PCA for highly contributed variables. So that transformation were done for the data. we were modeled 4 models in raw data, PCA data, log data, winsorzing data. 
+3. Overall as per the models turtledove were classified by 4 times, between cluster performance for turtledove is good as compared to other species. 
+4. k-means clustering is performed for each bird’s species to know clusters within each species.
+center is determine by viz_nbclust() using method silhouette for each bird’s species
+5. Outliers for each bird species is detected. (By calculating the distance between each observation and the centroid, we can identify how similar or dissimilar the observations in the cluster are to each other, as well as how well the centroid represents the cluster.Once we have computed the distances from the centroid, we can use this information to identify outliers in the cluster)
+
+thus, answering our question 2 (Are there any outliers?)
+
+6.To determine which species' group better than others we compare the WSS values for each species (from K-means results we performed for each species before). Lower WSS score means better grouping.
+In our finding species turtledove birds clips group better than others.  
+
+Thus, answering our question 3(Do some birds clips group better than others?)
+
+
+
